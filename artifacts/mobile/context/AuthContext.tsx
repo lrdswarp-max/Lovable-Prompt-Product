@@ -8,7 +8,14 @@ import React, {
 } from "react";
 
 import type { User } from "@/data/types";
-import { MOCK_STUDENTS, MOCK_TRAINER } from "@/data/mockData";
+import { MOCK_STUDENTS } from "@/data/mockData";
+
+const MOCK_TRAINER = {
+  id: "trainer1",
+  name: "Jordan Silva",
+  email: "jordan@trainflow.com",
+  role: "trainer" as const,
+};
 
 interface AuthContextType {
   user: User | null;
@@ -84,9 +91,3 @@ export function useAuth(): AuthContextType {
   return ctx;
 }
 
-export const MOCK_TRAINER = {
-  id: "trainer1",
-  name: "Jordan Silva",
-  email: "jordan@trainflow.com",
-  role: "trainer" as const,
-};

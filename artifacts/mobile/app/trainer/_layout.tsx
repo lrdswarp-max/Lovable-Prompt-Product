@@ -9,26 +9,30 @@ import { Platform, StyleSheet, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 
-function NativeTabLayout() {
+function NativeTrainerTabs() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
+        <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
+        <Label>Dashboard</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="students">
+        <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
+        <Label>Students</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="exercises">
+        <Icon sf={{ default: "dumbbell", selected: "dumbbell.fill" }} />
+        <Label>Library</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="chat">
         <Icon sf={{ default: "message", selected: "message.fill" }} />
-        <Label>Chat</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
-        <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>Profile</Label>
+        <Label>Messages</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
 
-function ClassicTabLayout() {
+function ClassicTrainerTabs() {
   const colors = useColors();
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
@@ -36,7 +40,7 @@ function ClassicTabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.accent,
+        tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.mutedForeground,
         headerShown: false,
         tabBarStyle: {
@@ -58,19 +62,43 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
+          title: "Dashboard",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="house" tintColor={color} size={22} />
+              <SymbolView name="chart.bar" tintColor={color} size={22} />
             ) : (
-              <Feather name="home" size={22} color={color} />
+              <Feather name="bar-chart-2" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="students"
+        options={{
+          title: "Students",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="person.2" tintColor={color} size={22} />
+            ) : (
+              <Feather name="users" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="exercises"
+        options={{
+          title: "Library",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="dumbbell" tintColor={color} size={22} />
+            ) : (
+              <Feather name="activity" size={22} color={color} />
             ),
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
-          title: "Chat",
+          title: "Messages",
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="message" tintColor={color} size={22} />
@@ -79,25 +107,11 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="person" tintColor={color} size={22} />
-            ) : (
-              <Feather name="user" size={22} color={color} />
-            ),
-        }}
-      />
     </Tabs>
   );
 }
 
-export default function StudentTabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
+export default function TrainerTabLayout() {
+  if (isLiquidGlassAvailable()) return <NativeTrainerTabs />;
+  return <ClassicTrainerTabs />;
 }
