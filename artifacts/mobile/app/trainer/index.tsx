@@ -13,13 +13,14 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
-import { MOCK_CONVERSATIONS, MOCK_PAST_SESSIONS, MOCK_STUDENTS } from "@/data/mockData";
+import { useData } from "@/context/DataContext";
 import { useColors } from "@/hooks/useColors";
 
 export default function TrainerDashboard() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const { students, conversations, sessions, plans } = useData();
 
   useFocusEffect(
     useCallback(() => {
@@ -33,13 +34,14 @@ export default function TrainerDashboard() {
 
   if (!user || user.role !== "trainer") return null;
 
-  const activeStudents = MOCK_STUDENTS.filter((s) => s.status === "active").length;
-  const totalStudents = MOCK_STUDENTS.length;
-  const unreadMessages = MOCK_CONVERSATIONS.reduce(
+  const activeStudents = students.filter((s) => s.status === "active").length;
+  const totalStudents = students.length;
+  const unreadMessages = conversations.reduce(
     (n, c) => n + c.messages.filter((m) => m.senderId !== user.id).length,
     0
   );
-  const recentSessions = MOCK_PAST_SESSIONS.slice(0, 3);
+  const recentSessions = sessions.slice(0, 3);
+  const publishedPlans = plans.filter((p) => p.isPublished).length;
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   const bottomPad = Platform.OS === "web" ? 84 + 34 : 84 + insets.bottom;
@@ -76,14 +78,15 @@ export default function TrainerDashboard() {
         <View style={styles.actionsGrid}>
           <ActionCard
             icon="users"
-            label="View Students"
+            label="Students"
             onPress={() => router.push("/trainer/students")}
             colors={colors}
           />
           <ActionCard
-            icon="activity"
-            label="Exercise Library"
-            onPress={() => router.push("/trainer/exercises")}
+            icon="clipboard"
+            label="Plans"
+            sub={`${publishedPlans} published`}
+            onPress={() => router.push("/trainer/plans")}
             colors={colors}
           />
           <ActionCard
@@ -95,43 +98,45 @@ export default function TrainerDashboard() {
           />
           <ActionCard
             icon="plus-circle"
-            label="Add Student"
-            onPress={() => router.push("/trainer/students")}
+            label="New Plan"
+            onPress={() => router.push("/plan-builder")}
             colors={colors}
           />
         </View>
       </View>
 
       {/* Recent activity */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>RECENT SESSIONS</Text>
-        <View style={[styles.activityCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {recentSessions.map((sess, i) => {
-            const student = MOCK_STUDENTS.find((s) => s.id === "student1");
-            return (
-              <View key={sess.id}>
-                <View style={styles.activityRow}>
-                  <View style={[styles.activityDot, { backgroundColor: colors.accent }]} />
-                  <View style={styles.activityInfo}>
-                    <Text style={[styles.activityStudent, { color: colors.foreground }]}>
-                      {student?.name}
-                    </Text>
-                    <Text style={[styles.activityDetail, { color: colors.mutedForeground }]}>
-                      {sess.exerciseFocus} · {sess.loggedSets.length} sets
+      {recentSessions.length > 0 && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>RECENT SESSIONS</Text>
+          <View style={[styles.activityCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {recentSessions.map((sess, i) => {
+              const student = students.find((s) => s.id === "student1");
+              return (
+                <View key={sess.id}>
+                  <View style={styles.activityRow}>
+                    <View style={[styles.activityDot, { backgroundColor: colors.accent }]} />
+                    <View style={styles.activityInfo}>
+                      <Text style={[styles.activityStudent, { color: colors.foreground }]}>
+                        {student?.name ?? "Student"}
+                      </Text>
+                      <Text style={[styles.activityDetail, { color: colors.mutedForeground }]}>
+                        {sess.exerciseFocus} · {sess.loggedSets.length} sets logged
+                      </Text>
+                    </View>
+                    <Text style={[styles.activityTime, { color: colors.mutedForeground }]}>
+                      {Math.floor((Date.now() - sess.startTime) / 3600000)}h ago
                     </Text>
                   </View>
-                  <Text style={[styles.activityTime, { color: colors.mutedForeground }]}>
-                    {Math.floor((Date.now() - sess.startTime) / 3600000)}h ago
-                  </Text>
+                  {i < recentSessions.length - 1 && (
+                    <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  )}
                 </View>
-                {i < recentSessions.length - 1 && (
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                )}
-              </View>
-            );
-          })}
+              );
+            })}
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Student roster preview */}
       <View style={styles.section}>
@@ -142,7 +147,7 @@ export default function TrainerDashboard() {
           </Pressable>
         </View>
         <View style={[styles.rosterCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {MOCK_STUDENTS.slice(0, 3).map((s, i) => (
+          {students.slice(0, 3).map((s, i) => (
             <View key={s.id}>
               <Pressable
                 style={styles.rosterRow}
@@ -165,7 +170,9 @@ export default function TrainerDashboard() {
                   </Text>
                 </View>
               </Pressable>
-              {i < 2 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
+              {i < 2 && students.length > i + 1 && (
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              )}
             </View>
           ))}
         </View>
@@ -187,8 +194,8 @@ function StatCard({ label, value, sub, color, colors }: {
   );
 }
 
-function ActionCard({ icon, label, onPress, colors, badge }: {
-  icon: string; label: string; onPress: () => void;
+function ActionCard({ icon, label, sub, onPress, colors, badge }: {
+  icon: string; label: string; sub?: string; onPress: () => void;
   colors: ReturnType<typeof useColors>; badge?: string;
 }) {
   return (
@@ -205,6 +212,7 @@ function ActionCard({ icon, label, onPress, colors, badge }: {
         )}
       </View>
       <Text style={[dashStyles.actionLabel, { color: colors.foreground }]}>{label}</Text>
+      {sub && <Text style={[dashStyles.actionSub, { color: colors.mutedForeground }]}>{sub}</Text>}
     </Pressable>
   );
 }
@@ -214,8 +222,9 @@ const dashStyles = StyleSheet.create({
   statValue: { fontSize: 32, fontWeight: "900" },
   statLabel: { fontSize: 14, fontWeight: "600" },
   statSub: { fontSize: 12 },
-  actionCard: { flex: 1, borderRadius: 14, borderWidth: 1, padding: 16, gap: 10, alignItems: "flex-start" },
+  actionCard: { flex: 1, borderRadius: 14, borderWidth: 1, padding: 16, gap: 6, alignItems: "flex-start", minWidth: "45%" },
   actionLabel: { fontSize: 13, fontWeight: "600" },
+  actionSub: { fontSize: 11 },
   badgeDot: { position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
   badgeDotText: { color: "#fff", fontSize: 9, fontWeight: "700" },
 });

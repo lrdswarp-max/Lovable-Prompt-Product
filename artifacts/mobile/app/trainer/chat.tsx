@@ -14,7 +14,7 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
-import { MOCK_CONVERSATIONS } from "@/data/mockData";
+import { useData } from "@/context/DataContext";
 import type { Conversation, Message } from "@/data/types";
 import { useColors } from "@/hooks/useColors";
 
@@ -22,9 +22,9 @@ export default function TrainerChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { conversations, sendMessage } = useData();
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [conversations, setConversations] = useState(MOCK_CONVERSATIONS);
   const [input, setInput] = useState("");
   const flatRef = useRef<FlatList>(null);
 
@@ -33,7 +33,7 @@ export default function TrainerChatScreen() {
 
   const activeConv = conversations.find((c) => c.id === selected);
 
-  const sendMessage = async () => {
+  const handleSend = async () => {
     if (!input.trim() || !selected) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const msg: Message = {
@@ -43,11 +43,7 @@ export default function TrainerChatScreen() {
       text: input.trim(),
       timestamp: Date.now(),
     };
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === selected ? { ...c, messages: [...c.messages, msg] } : c
-      )
-    );
+    await sendMessage(selected, msg);
     setInput("");
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
   };
@@ -75,10 +71,10 @@ export default function TrainerChatScreen() {
               </Text>
             )}
           </View>
-          <View>
+          <View style={styles.convTitleBlock}>
             <Text style={[styles.convName, { color: colors.foreground }]}>{convTitle}</Text>
             {activeConv.isGroup && (
-              <Text style={[styles.convSub, { color: colors.mutedForeground }]}>
+              <Text style={[styles.convSub, { color: colors.mutedForeground }]} numberOfLines={1}>
                 {activeConv.participantNames.filter((n) => n !== user?.name).join(", ")}
               </Text>
             )}
@@ -142,7 +138,7 @@ export default function TrainerChatScreen() {
             />
           </View>
           <Pressable
-            onPress={sendMessage}
+            onPress={handleSend}
             style={[styles.sendBtn, { backgroundColor: input.trim() ? colors.primary : colors.muted }]}
           >
             <Feather name="send" size={18} color={input.trim() ? "#fff" : colors.mutedForeground} />
@@ -152,7 +148,6 @@ export default function TrainerChatScreen() {
     );
   }
 
-  // Conversation list
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={[styles.listHeader, { paddingTop: topPad + 16, borderBottomColor: colors.border }]}>
@@ -233,6 +228,7 @@ const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   convAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   convAvatarText: { fontSize: 14, fontWeight: "700" },
+  convTitleBlock: { flex: 1 },
   convName: { fontSize: 16, fontWeight: "700" },
   convSub: { fontSize: 11, marginTop: 1 },
   messageList: { padding: 16 },

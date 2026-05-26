@@ -17,8 +17,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ExerciseDisplay } from "@/components/ExerciseDisplay";
 import { ProgressRing } from "@/components/ui/ProgressRing";
+import { useData } from "@/context/DataContext";
 import { MOCK_PLAN } from "@/data/mockData";
-import type { LoggedSet, WorkoutExercise } from "@/data/types";
+import type { LoggedSet, WorkoutExercise, WorkoutSession } from "@/data/types";
 import { useColors } from "@/hooks/useColors";
 
 const { width, height } = Dimensions.get("window");
@@ -29,6 +30,7 @@ export default function WorkoutScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { dayId } = useLocalSearchParams<{ dayId: string }>();
+  const { saveSession } = useData();
 
   const day = useMemo(
     () => MOCK_PLAN.days.find((d) => d.id === dayId) ?? MOCK_PLAN.days[0],
@@ -81,6 +83,30 @@ export default function WorkoutScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   }, [status, restLeft]);
+
+  // Save session when complete
+  const savedRef = useRef(false);
+  useEffect(() => {
+    if (status === "complete" && !savedRef.current) {
+      savedRef.current = true;
+      const endTime = Date.now();
+      const vol = loggedSets.reduce((s, set) => s + set.weight * set.reps, 0);
+      const session: WorkoutSession = {
+        id: `sess_${Date.now()}`,
+        planId: MOCK_PLAN.id,
+        dayId: day.id,
+        dayName: day.dayName,
+        planName: MOCK_PLAN.name,
+        exerciseFocus: day.focus,
+        startTime: sessionStart.current,
+        endTime,
+        loggedSets,
+        status: "complete",
+        totalVolume: vol,
+      };
+      saveSession(session).catch(() => {});
+    }
+  }, [status, loggedSets, day, saveSession]);
 
   const advanceExercise = useCallback(
     (fromIndex: number, sets: LoggedSet[]) => {

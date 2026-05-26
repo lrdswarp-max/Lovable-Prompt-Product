@@ -17,7 +17,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
-import { MOCK_CONVERSATIONS, MOCK_PAST_SESSIONS, MOCK_PLAN, getTodayWorkoutDay } from "@/data/mockData";
+import { useData } from "@/context/DataContext";
+import { MOCK_PLAN, getTodayWorkoutDay } from "@/data/mockData";
+import type { WorkoutSession } from "@/data/types";
 import { useColors } from "@/hooks/useColors";
 
 const { width } = Dimensions.get("window");
@@ -33,7 +35,7 @@ const MUSCLE_COLORS: Record<string, string> = {
   cardio: "#F44336",
 };
 
-function SessionCard({ session }: { session: (typeof MOCK_PAST_SESSIONS)[0] }) {
+function SessionCard({ session }: { session: WorkoutSession }) {
   const colors = useColors();
   const duration = session.endTime
     ? Math.round((session.endTime - session.startTime) / 60000)
@@ -65,6 +67,7 @@ export default function StudentHomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const { sessions, conversations } = useData();
 
   useFocusEffect(
     useCallback(() => {
@@ -77,9 +80,9 @@ export default function StudentHomeScreen() {
   );
 
   const todayDay = getTodayWorkoutDay();
-  const latestMessage = MOCK_CONVERSATIONS[0]?.messages.slice(-1)[0];
+  const latestMessage = conversations[0]?.messages.slice(-1)[0];
   const trainerName =
-    MOCK_CONVERSATIONS[0]?.participantNames.find((n) => n !== user?.name) ?? "Coach";
+    conversations[0]?.participantNames.find((n) => n !== user?.name) ?? "Coach";
 
   const scale = React.useRef(new Animated.Value(1)).current;
   const pressIn = () =>
@@ -188,13 +191,13 @@ export default function StudentHomeScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>RECENT SESSIONS</Text>
           <FlatList
-            data={MOCK_PAST_SESSIONS}
+            data={sessions.slice(0, 10)}
             horizontal
             showsHorizontalScrollIndicator={false}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.sessionsList}
             renderItem={({ item }) => <SessionCard session={item} />}
-            scrollEnabled={!!MOCK_PAST_SESSIONS.length}
+            scrollEnabled={!!sessions.length}
           />
         </View>
 

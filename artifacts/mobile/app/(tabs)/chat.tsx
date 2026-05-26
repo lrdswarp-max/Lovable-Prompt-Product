@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useRef, useState } from "react";
+import React, { useRef } from "react";
 import {
   FlatList,
   Platform,
@@ -14,7 +14,7 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
-import { MOCK_CONVERSATIONS } from "@/data/mockData";
+import { useData } from "@/context/DataContext";
 import type { Message } from "@/data/types";
 import { useColors } from "@/hooks/useColors";
 
@@ -22,18 +22,17 @@ export default function StudentChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { conversations, sendMessage } = useData();
 
-  const [messages, setMessages] = useState<Message[]>(
-    MOCK_CONVERSATIONS[0]?.messages ?? []
-  );
-  const [input, setInput] = useState("");
+  const conv = conversations[0];
+  const messages = conv?.messages ?? [];
+  const trainerName = conv?.participantNames.find((n) => n !== user?.name) ?? "Coach";
+
+  const [input, setInput] = React.useState("");
   const flatRef = useRef<FlatList>(null);
 
-  const trainerName =
-    MOCK_CONVERSATIONS[0]?.participantNames.find((n) => n !== user?.name) ?? "Coach";
-
-  const sendMessage = async () => {
-    if (!input.trim()) return;
+  const handleSend = async () => {
+    if (!input.trim() || !conv) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const msg: Message = {
       id: `m${Date.now()}`,
@@ -43,8 +42,9 @@ export default function StudentChatScreen() {
       timestamp: Date.now(),
       pending: false,
     };
-    setMessages((prev) => [...prev, msg]);
+    await sendMessage(conv.id, msg);
     setInput("");
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
   };
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -87,15 +87,10 @@ export default function StudentChatScreen() {
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       style={[styles.root, { backgroundColor: colors.background }]}
     >
-      {/* Header */}
       <View
         style={[
           styles.chatHeader,
-          {
-            paddingTop: topPad + 12,
-            backgroundColor: colors.background,
-            borderBottomColor: colors.border,
-          },
+          { paddingTop: topPad + 12, backgroundColor: colors.background, borderBottomColor: colors.border },
         ]}
       >
         <View style={[styles.avatarLg, { backgroundColor: colors.primary + "30" }]}>
@@ -121,15 +116,10 @@ export default function StudentChatScreen() {
         scrollEnabled={!!messages.length}
       />
 
-      {/* Input */}
       <View
         style={[
           styles.inputRow,
-          {
-            backgroundColor: colors.background,
-            borderTopColor: colors.border,
-            paddingBottom: bottomPad + 8,
-          },
+          { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPad + 8 },
         ]}
       >
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -144,7 +134,7 @@ export default function StudentChatScreen() {
           />
         </View>
         <Pressable
-          onPress={sendMessage}
+          onPress={handleSend}
           style={[styles.sendBtn, { backgroundColor: input.trim() ? colors.primary : colors.muted }]}
         >
           <Feather name="send" size={18} color={input.trim() ? "#fff" : colors.mutedForeground} />

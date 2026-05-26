@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React from "react";
 import {
+  Dimensions,
   Platform,
   Pressable,
   ScrollView,
@@ -13,18 +14,23 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { BarChart } from "@/components/ui/BarChart";
 import { useAuth } from "@/context/AuthContext";
-import { MOCK_PAST_SESSIONS, MOCK_PLAN, MOCK_STUDENTS } from "@/data/mockData";
+import { useData } from "@/context/DataContext";
+import { MOCK_PLAN } from "@/data/mockData";
 import { useColors } from "@/hooks/useColors";
+
+const { width } = Dimensions.get("window");
 
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const { sessions, students } = useData();
 
-  const studentRecord = MOCK_STUDENTS.find((s) => s.id === user?.id) ?? MOCK_STUDENTS[0];
-  const totalSessions = MOCK_PAST_SESSIONS.length;
-  const totalVolume = MOCK_PAST_SESSIONS.reduce((s, sess) => s + (sess.totalVolume ?? 0), 0);
+  const studentRecord = students.find((s) => s.id === user?.id) ?? students[0];
+  const totalSessions = sessions.length;
+  const totalVolume = sessions.reduce((s, sess) => s + (sess.totalVolume ?? 0), 0);
 
   const topPad = Platform.OS === "web" ? 67 + insets.top : insets.top;
   const bottomPad = Platform.OS === "web" ? 84 + 34 : 84 + insets.bottom;
@@ -34,6 +40,19 @@ export default function ProfileScreen() {
     await logout();
     router.replace("/login");
   };
+
+  const recentSessions = sessions.slice(0, 7);
+  const chartData = recentSessions
+    .slice()
+    .reverse()
+    .map((s) => ({
+      label: s.dayName.slice(0, 3),
+      value: Math.round((s.totalVolume ?? 0) / 10) * 10,
+    }));
+
+  const weekSessions = sessions.filter(
+    (s) => Date.now() - s.startTime < 7 * 24 * 3600000
+  ).length;
 
   return (
     <ScrollView
@@ -62,7 +81,7 @@ export default function ProfileScreen() {
         {[
           { label: "Sessions", value: String(totalSessions) },
           { label: "Volume (kg)", value: (totalVolume / 1000).toFixed(1) + "t" },
-          { label: "Active Plan", value: MOCK_PLAN.name.split(" ").slice(0, 2).join(" ") },
+          { label: "This Week", value: String(weekSessions) },
         ].map((stat) => (
           <View key={stat.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.statValue, { color: colors.accent }]}>{stat.value}</Text>
@@ -71,8 +90,29 @@ export default function ProfileScreen() {
         ))}
       </View>
 
+      {/* Volume Chart */}
+      {chartData.length > 0 && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>VOLUME PER SESSION</Text>
+          <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <BarChart
+              data={chartData}
+              height={130}
+              barColor={colors.primary}
+              trackColor={colors.muted}
+              labelColor={colors.mutedForeground}
+              valueColor={colors.foreground}
+              unit="kg"
+            />
+            <Text style={[styles.chartCaption, { color: colors.mutedForeground }]}>
+              Last {chartData.length} sessions · {chartData.filter(d => d.value > 0).length} with data
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* Measurements */}
-      {studentRecord.measurements && (
+      {studentRecord?.measurements && (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>MEASUREMENTS</Text>
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -157,6 +197,8 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 11, textAlign: "center" },
   section: { gap: 10 },
   sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.2 },
+  chartCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 8 },
+  chartCaption: { fontSize: 11, textAlign: "center", marginTop: 4 },
   card: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 12 },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
   rowLabel: { fontSize: 13, width: 60 },

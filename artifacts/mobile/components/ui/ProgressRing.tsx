@@ -1,7 +1,7 @@
 import React from "react";
 import { Platform } from "react-native";
 
-let Svg: React.ComponentType<{ width: number; height: number; style?: object }>;
+let Svg: React.ComponentType<{ width: number; height: number; style?: object; children?: React.ReactNode }>;
 let Circle: React.ComponentType<{
   cx: number;
   cy: number;

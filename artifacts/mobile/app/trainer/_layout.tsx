@@ -20,6 +20,10 @@ function NativeTrainerTabs() {
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
         <Label>Students</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="plans">
+        <Icon sf={{ default: "doc.text", selected: "doc.text.fill" }} />
+        <Label>Plans</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="exercises">
         <Icon sf={{ default: "dumbbell", selected: "dumbbell.fill" }} />
         <Label>Library</Label>
@@ -80,6 +84,18 @@ function ClassicTrainerTabs() {
               <SymbolView name="person.2" tintColor={color} size={22} />
             ) : (
               <Feather name="users" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="plans"
+        options={{
+          title: "Plans",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="doc.text" tintColor={color} size={22} />
+            ) : (
+              <Feather name="clipboard" size={22} color={color} />
             ),
         }}
       />
