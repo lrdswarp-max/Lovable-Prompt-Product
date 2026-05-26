@@ -160,5 +160,5 @@ overrides:
   esbuild: "0.27.3"
   # Security: fix vulnerable transitive dependency versions
   uuid: ">=9.0.0"
-  qs: ">=6.14.0"
+  qs: ">=6.15.2"
   postcss: ">=8.4.54"

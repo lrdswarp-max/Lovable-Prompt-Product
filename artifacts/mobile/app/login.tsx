@@ -22,7 +22,7 @@ const { height } = Dimensions.get("window");
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { login } = useAuth();
+  const { login, isAuthReady } = useAuth();
 
   const [loading, setLoading] = useState(false);
 
@@ -91,12 +91,12 @@ export default function LoginScreen() {
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
             onPress={handleLogin}
-            disabled={loading}
+            disabled={loading || !isAuthReady}
             style={[
               styles.ctaButton,
               {
                 backgroundColor: colors.accent,
-                opacity: loading ? 0.8 : 1,
+                opacity: loading || !isAuthReady ? 0.6 : 1,
               },
             ]}
           >

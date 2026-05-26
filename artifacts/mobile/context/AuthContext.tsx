@@ -23,6 +23,7 @@ const ISSUER_URL =
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  isAuthReady: boolean;
   login: (role: "student" | "trainer") => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -137,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               code_verifier: request.codeVerifier,
               redirect_uri: redirectUri,
               state,
-              nonce: request.nonce,
+              nonce: (request as unknown as { nonce?: string }).nonce,
             }),
           },
         );
@@ -160,10 +161,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (role: "student" | "trainer") => {
+      if (!request) return;
       pendingRoleRef.current = role;
       await promptAsync();
     },
-    [promptAsync],
+    [promptAsync, request],
   );
 
   const logout = useCallback(async () => {
@@ -186,7 +188,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, isAuthReady: request !== null, login, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

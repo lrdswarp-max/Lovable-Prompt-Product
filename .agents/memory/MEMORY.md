@@ -1,2 +1,4 @@
 - [DataContext architecture](datacontext.md) — central store for sessions, conversations, plans, students; wraps mock data as defaults; AsyncStorage keys use v2 suffix.
 - [Trainer tab layout](trainer-tabs.md) — Plans tab added between Students and Library; NativeTabs and ClassicTabs both updated; plan-builder is a root Stack screen, not a trainer tab.
+- [Replit Auth mobile integration](replit-auth-mobile.md) — Expo uses expo-auth-session PKCE → API server token exchange; AuthContext manages both OIDC identity and student/trainer role.
+- [Vulnerability overrides pattern](vuln-overrides.md) — use pnpm-workspace.yaml overrides block to force minimum safe versions for transitive deps; verify with pnpm audit.
