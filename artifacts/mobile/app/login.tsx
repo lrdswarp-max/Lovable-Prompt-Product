@@ -7,12 +7,9 @@ import {
   Animated,
   Dimensions,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,11 +22,9 @@ const { height } = Dimensions.get("window");
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { loginAsStudent } = useAuth();
+  const { login } = useAuth();
 
-  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
 
   const scale = React.useRef(new Animated.Value(1)).current;
 
@@ -40,17 +35,14 @@ export default function LoginScreen() {
     Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
   };
 
-  const handleSendMagicLink = async () => {
-    if (!email.trim()) return;
+  const handleLogin = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setSent(true);
-    setLoading(false);
-    setTimeout(async () => {
-      await loginAsStudent(email);
-      router.replace("/(tabs)");
-    }, 800);
+    try {
+      await login("student");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -84,52 +76,26 @@ export default function LoginScreen() {
       </View>
 
       {/* Form */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.form}
-      >
+      <View style={styles.form}>
         <View style={styles.headingBlock}>
           <Text style={[styles.heading, { color: colors.foreground }]}>
             Welcome back.
           </Text>
           <Text style={[styles.subheading, { color: colors.mutedForeground }]}>
-            Enter your email and we'll send you a magic link.
+            Sign in to track your workouts and connect with your trainer.
           </Text>
-        </View>
-
-        <View
-          style={[
-            styles.inputWrapper,
-            {
-              backgroundColor: colors.input,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <TextInput
-            style={[styles.input, { color: colors.foreground }]}
-            placeholder="your@email.com"
-            placeholderTextColor={colors.mutedForeground}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="send"
-            onSubmitEditing={handleSendMagicLink}
-          />
         </View>
 
         <Animated.View style={{ transform: [{ scale }] }}>
           <Pressable
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
-            onPress={handleSendMagicLink}
-            disabled={loading || sent}
+            onPress={handleLogin}
+            disabled={loading}
             style={[
               styles.ctaButton,
               {
-                backgroundColor: sent ? "#22C55E" : colors.accent,
+                backgroundColor: colors.accent,
                 opacity: loading ? 0.8 : 1,
               },
             ]}
@@ -138,7 +104,7 @@ export default function LoginScreen() {
               <ActivityIndicator color={colors.accentForeground} />
             ) : (
               <Text style={[styles.ctaText, { color: colors.accentForeground }]}>
-                {sent ? "Check your email ✓" : "Send Magic Link"}
+                Log In
               </Text>
             )}
           </Pressable>
@@ -151,7 +117,7 @@ export default function LoginScreen() {
             </Text>
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 }
@@ -190,11 +156,11 @@ const styles = StyleSheet.create({
   form: {
     flex: 1,
     paddingHorizontal: 28,
-    paddingTop: 8,
-    gap: 16,
+    paddingTop: 32,
+    gap: 20,
   },
   headingBlock: {
-    gap: 6,
+    gap: 8,
   },
   heading: {
     fontSize: 32,
@@ -204,15 +170,6 @@ const styles = StyleSheet.create({
   subheading: {
     fontSize: 15,
     lineHeight: 22,
-  },
-  inputWrapper: {
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-  },
-  input: {
-    fontSize: 16,
   },
   ctaButton: {
     borderRadius: 14,
