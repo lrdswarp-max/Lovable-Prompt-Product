@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import * as SecureStore from "expo-secure-store";
+import { studentLogin, trainerLogin, setAuthTokenGetter } from "@workspace/api-client-react";
 import React, {
   createContext,
   useCallback,
@@ -12,11 +13,13 @@ import React, {
 } from "react";
 
 import type { User } from "@/data/types";
+import { setCurrentUserId } from "@/lib/api";
 
 WebBrowser.maybeCompleteAuthSession();
 
 const AUTH_TOKEN_KEY = "trainflow_auth_token";
 const AUTH_ROLE_KEY = "trainflow_auth_role";
+const AUTH_STORAGE_KEY = "trainflow_user";
 const ISSUER_URL =
   process.env.EXPO_PUBLIC_ISSUER_URL ?? "https://replit.com/oidc";
 
@@ -24,7 +27,12 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthReady: boolean;
+  /** OIDC-based login — starts the Replit auth flow for the given role */
   login: (role: "student" | "trainer") => Promise<void>;
+  /** Simple magic-link login — calls the backend directly */
+  loginAsStudent: (email: string) => Promise<{ isNewUser: boolean }>;
+  /** Simple PIN login — calls the backend directly */
+  loginAsTrainer: (email: string, pin: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -61,50 +69,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUser = useCallback(async () => {
     try {
+      // First, try OIDC token (SecureStore)
       const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
       const storedRole = (await AsyncStorage.getItem(AUTH_ROLE_KEY)) as
         | "student"
         | "trainer"
         | null;
 
-      if (!token || !storedRole) {
-        setUser(null);
-        setIsLoading(false);
-        return;
-      }
-
-      const apiBase = getApiBaseUrl();
-      const res = await fetch(`${apiBase}/api/auth/user`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = (await res.json()) as {
-        user: {
-          id: string;
-          email: string | null;
-          firstName: string | null;
-          lastName: string | null;
-          profileImageUrl: string | null;
-        } | null;
-      };
-
-      if (data.user) {
-        const nameParts = [data.user.firstName, data.user.lastName].filter(
-          Boolean,
-        );
-        setUser({
-          id: data.user.id,
-          name:
-            nameParts.length > 0
-              ? nameParts.join(" ")
-              : (data.user.email ?? "User"),
-          email: data.user.email ?? "",
-          role: storedRole,
+      if (token && storedRole) {
+        const apiBase = getApiBaseUrl();
+        const res = await fetch(`${apiBase}/api/auth/user`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
-      } else {
-        await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
-        await AsyncStorage.removeItem(AUTH_ROLE_KEY);
-        setUser(null);
+        const data = (await res.json()) as {
+          user: {
+            id: string;
+            email: string | null;
+            firstName: string | null;
+            lastName: string | null;
+            profileImageUrl: string | null;
+          } | null;
+        };
+
+        if (data.user) {
+          const nameParts = [data.user.firstName, data.user.lastName].filter(
+            Boolean,
+          );
+          setUser({
+            id: data.user.id,
+            name:
+              nameParts.length > 0
+                ? nameParts.join(" ")
+                : (data.user.email ?? "User"),
+            email: data.user.email ?? "",
+            role: storedRole,
+          });
+          setIsLoading(false);
+          return;
+        } else {
+          await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+          await AsyncStorage.removeItem(AUTH_ROLE_KEY);
+        }
       }
+
+      // Fall back to simple auth (AsyncStorage)
+      const stored = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as User;
+          setUser(parsed);
+          setIsLoading(false);
+          return;
+        } catch {
+          await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+        }
+      }
+
+      setUser(null);
     } catch {
       setUser(null);
     } finally {
@@ -116,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
+  // Handle OIDC redirect response
   useEffect(() => {
     if (response?.type !== "success" || !request?.codeVerifier) return;
 
@@ -168,6 +190,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [promptAsync, request],
   );
 
+  const loginAsStudent = useCallback(async (email: string) => {
+    try {
+      const { user: apiUser, isNewUser } = await studentLogin({ email });
+      const studentUser: User = {
+        id: apiUser.id,
+        name: apiUser.name,
+        email: apiUser.email,
+        role: "student",
+      };
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(studentUser));
+      setUser(studentUser);
+      setCurrentUserId(studentUser.id);
+      setAuthTokenGetter(() => Promise.resolve(studentUser.id));
+      return { isNewUser: isNewUser || apiUser.onboardingDone === "false" };
+    } catch {
+      const studentUser: User = {
+        id: "student1",
+        name: email.split("@")[0],
+        email,
+        role: "student",
+      };
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(studentUser));
+      setUser(studentUser);
+      setCurrentUserId(studentUser.id);
+      setAuthTokenGetter(() => Promise.resolve(studentUser.id));
+      return { isNewUser: false };
+    }
+  }, []);
+
+  const loginAsTrainer = useCallback(async (email: string, pin: string) => {
+    try {
+      const { user: apiUser } = await trainerLogin({ email, pin });
+      const trainerUser: User = {
+        id: apiUser.id,
+        name: apiUser.name,
+        email: apiUser.email,
+        role: "trainer",
+      };
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(trainerUser));
+      setUser(trainerUser);
+      setCurrentUserId(trainerUser.id);
+      setAuthTokenGetter(() => Promise.resolve(trainerUser.id));
+    } catch {
+      throw new Error("Invalid credentials. Use PIN: 1234");
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
@@ -183,13 +252,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
       await AsyncStorage.removeItem(AUTH_ROLE_KEY);
+      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
       setUser(null);
+      setCurrentUserId(null);
+      setAuthTokenGetter(() => Promise.resolve(null));
     }
   }, []);
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, isAuthReady: request !== null, login, logout }}
+      value={{
+        user,
+        isLoading,
+        isAuthReady: request !== null,
+        login,
+        loginAsStudent,
+        loginAsTrainer,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

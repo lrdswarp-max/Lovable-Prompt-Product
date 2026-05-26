@@ -1,4 +1,5 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useListExercises } from "@workspace/api-client-react";
 import React, { useState } from "react";
 import {
   FlatList,
@@ -12,8 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { MOCK_EXERCISES } from "@/data/mockData";
-import type { Exercise, MuscleGroup } from "@/data/types";
+import type { MuscleGroup } from "@/data/types";
 import { useColors } from "@/hooks/useColors";
 
 const MUSCLE_GROUPS: { key: MuscleGroup | "all"; label: string }[] = [
@@ -29,25 +29,23 @@ const MUSCLE_GROUPS: { key: MuscleGroup | "all"; label: string }[] = [
 ];
 
 const MUSCLE_COLORS: Record<MuscleGroup, string> = {
-  chest: "#FF6B35",
-  back: "#2979FF",
-  legs: "#00C853",
-  shoulders: "#FFD600",
-  biceps: "#AA00FF",
-  triceps: "#7B1FA2",
-  core: "#00BCD4",
-  cardio: "#F44336",
+  chest: "#FF6B35", back: "#2979FF", legs: "#00C853", shoulders: "#FFD600",
+  biceps: "#AA00FF", triceps: "#7B1FA2", core: "#00BCD4", cardio: "#F44336",
 };
 
 const MUSCLE_ICONS: Record<MuscleGroup, string> = {
-  chest: "arm-flex",
-  back: "rowing",
-  legs: "run-fast",
-  shoulders: "weight-lifter",
-  biceps: "arm-flex-outline",
-  triceps: "dumbbell",
-  core: "yoga",
-  cardio: "heart-pulse",
+  chest: "arm-flex", back: "rowing", legs: "run-fast", shoulders: "weight-lifter",
+  biceps: "arm-flex-outline", triceps: "dumbbell", core: "yoga", cardio: "heart-pulse",
+};
+
+type ApiExercise = {
+  id: string;
+  name: string;
+  muscleGroup: string;
+  equipment: string;
+  description?: string;
+  isGlobal?: boolean;
+  isCustom?: boolean;
 };
 
 export default function ExercisesScreen() {
@@ -56,7 +54,9 @@ export default function ExercisesScreen() {
   const [search, setSearch] = useState("");
   const [activeGroup, setActiveGroup] = useState<MuscleGroup | "all">("all");
 
-  const filtered = MOCK_EXERCISES.filter((ex) => {
+  const { data: exercises = [], isLoading: loading } = useListExercises({});
+
+  const filtered = exercises.filter((ex) => {
     const matchesSearch =
       ex.name.toLowerCase().includes(search.toLowerCase()) ||
       ex.equipment.toLowerCase().includes(search.toLowerCase());
@@ -67,9 +67,9 @@ export default function ExercisesScreen() {
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   const bottomPad = Platform.OS === "web" ? 84 + 34 : 84 + insets.bottom;
 
-  const renderExercise = ({ item }: { item: Exercise }) => {
-    const muscleColor = MUSCLE_COLORS[item.muscleGroup];
-    const icon = MUSCLE_ICONS[item.muscleGroup];
+  const renderExercise = ({ item }: { item: ApiExercise }) => {
+    const muscleColor = MUSCLE_COLORS[item.muscleGroup as MuscleGroup] ?? "#7B7BFF";
+    const icon = MUSCLE_ICONS[item.muscleGroup as MuscleGroup] ?? "dumbbell";
     return (
       <View style={[styles.exCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={[styles.exIcon, { backgroundColor: muscleColor + "25" }]}>
@@ -102,15 +102,11 @@ export default function ExercisesScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Exercise Library</Text>
-        <Text style={[styles.count, { color: colors.mutedForeground }]}>
-          {filtered.length} exercises
-        </Text>
+        <Text style={[styles.count, { color: colors.mutedForeground }]}>{filtered.length} exercises</Text>
       </View>
 
-      {/* Search */}
       <View style={[styles.searchRow, { paddingHorizontal: 16, marginTop: 12 }]}>
         <View style={[styles.searchBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Feather name="search" size={16} color={colors.mutedForeground} />
@@ -124,12 +120,7 @@ export default function ExercisesScreen() {
         </View>
       </View>
 
-      {/* Filter chips */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         {MUSCLE_GROUPS.map((g) => (
           <Pressable
             key={g.key}
@@ -141,12 +132,7 @@ export default function ExercisesScreen() {
                 : { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            <Text
-              style={[
-                styles.filterChipText,
-                { color: activeGroup === g.key ? "#fff" : colors.mutedForeground },
-              ]}
-            >
+            <Text style={[styles.filterChipText, { color: activeGroup === g.key ? "#fff" : colors.mutedForeground }]}>
               {g.label}
             </Text>
           </Pressable>
@@ -159,11 +145,13 @@ export default function ExercisesScreen() {
         renderItem={renderExercise}
         contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={!!filtered.length}
+        scrollEnabled={filtered.length > 0}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Feather name="activity" size={40} color={colors.muted} />
-            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No exercises found</Text>
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+              {loading ? "Loading..." : "No exercises found"}
+            </Text>
           </View>
         }
       />

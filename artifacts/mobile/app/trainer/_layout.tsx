@@ -123,6 +123,14 @@ function ClassicTrainerTabs() {
             ),
         }}
       />
+      <Tabs.Screen
+        name="create-plan"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="plans"
+        options={{ href: null }}
+      />
     </Tabs>
   );
 }

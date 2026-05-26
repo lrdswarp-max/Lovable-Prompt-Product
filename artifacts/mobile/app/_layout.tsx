@@ -5,7 +5,9 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
+import { setBaseUrl } from "@workspace/api-client-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import Constants from "expo-constants";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
@@ -16,6 +18,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/context/AuthContext";
 import { DataProvider } from "@/context/DataContext";
+
+const devDomain = Constants.expoConfig?.extra?.EXPO_PUBLIC_DOMAIN as string | undefined;
+if (devDomain) {
+  setBaseUrl(`https://${devDomain}`);
+}
 
 SplashScreen.preventAutoHideAsync();
 

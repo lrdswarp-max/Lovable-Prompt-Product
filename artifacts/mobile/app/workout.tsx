@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   Platform,
@@ -17,30 +18,43 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ExerciseDisplay } from "@/components/ExerciseDisplay";
 import { ProgressRing } from "@/components/ui/ProgressRing";
-import { useData } from "@/context/DataContext";
-import { MOCK_PLAN } from "@/data/mockData";
-import type { LoggedSet, WorkoutExercise, WorkoutSession } from "@/data/types";
+import { useAuth } from "@/context/AuthContext";
+import { api, type ApiDay, type ApiPlanExercise } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
 
 const { width, height } = Dimensions.get("window");
 
 type WorkoutStatus = "active" | "resting" | "complete";
 
+interface LoggedSet {
+  exerciseId: string;
+  planExerciseId: string;
+  setNumber: number;
+  weight: number;
+  reps: number;
+  timestamp: number;
+}
+
 export default function WorkoutScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { dayId } = useLocalSearchParams<{ dayId: string }>();
-  const { saveSession } = useData();
+  const { dayId, planId } = useLocalSearchParams<{ dayId: string; planId: string }>();
+  const { user } = useAuth();
 
-  const day = useMemo(
-    () => MOCK_PLAN.days.find((d) => d.id === dayId) ?? MOCK_PLAN.days[0],
-    [dayId]
-  );
-  const exercises = day.exercises;
-  const totalSets = useMemo(
-    () => exercises.reduce((sum, ex) => sum + ex.sets, 0),
-    [exercises]
-  );
+  const [day, setDay] = useState<ApiDay | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!planId || !dayId) { setLoading(false); return; }
+    api.plans.get(planId).then((plan) => {
+      const found = plan.days.find((d) => d.id === dayId) ?? plan.days[0];
+      setDay(found);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [planId, dayId]);
+
+  const exercises: ApiPlanExercise[] = useMemo(() => day?.exercises ?? [], [day]);
+  const totalSets = useMemo(() => exercises.reduce((sum, ex) => sum + ex.sets, 0), [exercises]);
 
   const [exIndex, setExIndex] = useState(0);
   const [loggedSets, setLoggedSets] = useState<LoggedSet[]>([]);
@@ -52,8 +66,8 @@ export default function WorkoutScreen() {
   const [sessionTime, setSessionTime] = useState(0);
   const sessionStart = useRef(Date.now());
 
-  const currentEx: WorkoutExercise = exercises[exIndex];
-  const setsLoggedForEx = loggedSets.filter((s) => s.planExerciseId === currentEx.id).length;
+  const currentEx: ApiPlanExercise | undefined = exercises[exIndex];
+  const setsLoggedForEx = currentEx ? loggedSets.filter((s) => s.planExerciseId === currentEx.id).length : 0;
   const currentSetNum = setsLoggedForEx + 1;
   const completedSets = loggedSets.length;
   const progress = totalSets > 0 ? completedSets / totalSets : 0;
@@ -87,26 +101,34 @@ export default function WorkoutScreen() {
   // Save session when complete
   const savedRef = useRef(false);
   useEffect(() => {
-    if (status === "complete" && !savedRef.current) {
+    if (status === "complete" && !savedRef.current && day) {
       savedRef.current = true;
-      const endTime = Date.now();
-      const vol = loggedSets.reduce((s, set) => s + set.weight * set.reps, 0);
-      const session: WorkoutSession = {
-        id: `sess_${Date.now()}`,
-        planId: MOCK_PLAN.id,
+      const sets = loggedSets;
+      if (!user || !planId) return;
+      
+      const now = Date.now();
+      const totalVolume = sets.reduce((s, ls) => s + ls.weight * ls.reps, 0);
+      
+      setSaving(true);
+      api.sessions.create({
+        studentId: user.id,
+        planId,
         dayId: day.id,
         dayName: day.dayName,
-        planName: MOCK_PLAN.name,
+        planName: "",
         exerciseFocus: day.focus,
         startTime: sessionStart.current,
-        endTime,
-        loggedSets,
+        endTime: now,
         status: "complete",
-        totalVolume: vol,
-      };
-      saveSession(session).catch(() => {});
+        totalVolume,
+        loggedSets: sets,
+      }).catch(() => {
+        // Save failed silently
+      }).finally(() => {
+        setSaving(false);
+      });
     }
-  }, [status, loggedSets, day, saveSession]);
+  }, [status, loggedSets, day, user, planId]);
 
   const advanceExercise = useCallback(
     (fromIndex: number, sets: LoggedSet[]) => {
@@ -126,6 +148,7 @@ export default function WorkoutScreen() {
   );
 
   const confirmSet = useCallback(() => {
+    if (!currentEx) return;
     const weight = parseFloat(weightInput) || 0;
     const reps = parseInt(repsInput, 10) || 0;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -167,21 +190,23 @@ export default function WorkoutScreen() {
   };
 
   const goBack = () => {
-    if (exIndex > 0) {
-      setExIndex(exIndex - 1);
-      setStatus("active");
-    }
+    if (exIndex > 0) { setExIndex(exIndex - 1); setStatus("active"); }
   };
 
   const goNext = () => {
-    if (exIndex < exercises.length - 1) {
-      setExIndex(exIndex + 1);
-      setStatus("active");
-    }
+    if (exIndex < exercises.length - 1) { setExIndex(exIndex + 1); setStatus("active"); }
   };
 
   const totalVolume = loggedSets.reduce((s, set) => s + set.weight * set.reps, 0);
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
+
+  if (loading) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }]}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
 
   // Completion screen
   if (status === "complete") {
@@ -194,7 +219,7 @@ export default function WorkoutScreen() {
           </View>
           <Text style={[styles.completionTitle, { color: colors.foreground }]}>Session Complete</Text>
           <Text style={[styles.completionDay, { color: colors.mutedForeground }]}>
-            {day.dayName} · {day.focus}
+            {day?.dayName} · {day?.focus}
           </Text>
 
           <View style={styles.statsRow}>
@@ -204,12 +229,28 @@ export default function WorkoutScreen() {
           </View>
 
           <Pressable
-            onPress={() => router.replace("/(tabs)")}
-            style={[styles.doneBtn, { backgroundColor: colors.accent }]}
+            onPress={() => {
+              router.replace("/(tabs)");
+            }}
+            disabled={saving}
+            style={[styles.doneBtn, { backgroundColor: colors.accent, opacity: saving ? 0.7 : 1 }]}
           >
-            <Text style={[styles.doneBtnText, { color: colors.accentForeground }]}>Back to Home</Text>
+            <Text style={[styles.doneBtnText, { color: colors.accentForeground }]}>
+              {saving ? "Saving..." : "Back to Home"}
+            </Text>
           </Pressable>
         </View>
+      </View>
+    );
+  }
+
+  if (!currentEx) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }]}>
+        <Text style={{ color: colors.mutedForeground }}>No exercises found.</Text>
+        <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
+          <Text style={{ color: colors.primary }}>Go back</Text>
+        </Pressable>
       </View>
     );
   }
@@ -223,13 +264,7 @@ export default function WorkoutScreen() {
         </Pressable>
 
         <View style={styles.progressCenter}>
-          <ProgressRing
-            progress={progress}
-            size={44}
-            strokeWidth={4}
-            color={colors.accent}
-            trackColor={colors.muted}
-          />
+          <ProgressRing progress={progress} size={44} strokeWidth={4} color={colors.accent} trackColor={colors.muted} />
           <View style={styles.progressLabel}>
             <Text style={[styles.progressEx, { color: colors.foreground }]}>
               {exIndex + 1}/{exercises.length}
@@ -244,14 +279,14 @@ export default function WorkoutScreen() {
 
       {/* Exercise display */}
       <ExerciseDisplay
-        muscleGroup={currentEx.exercise.muscleGroup}
-        exerciseName={currentEx.exercise.name}
+        muscleGroup={(currentEx.exercise?.muscleGroup ?? "chest") as Parameters<typeof ExerciseDisplay>[0]["muscleGroup"]}
+        exerciseName={currentEx.exercise?.name ?? "Exercise"}
       />
 
       {/* Exercise info */}
       <View style={styles.exInfo}>
         <Text style={[styles.exName, { color: colors.foreground }]} numberOfLines={2}>
-          {currentEx.exercise.name}
+          {currentEx.exercise?.name ?? "Exercise"}
         </Text>
         <View style={styles.setsRepsRow}>
           <View style={[styles.badge, { backgroundColor: colors.primary + "25", borderColor: colors.primary + "50" }]}>
@@ -260,20 +295,14 @@ export default function WorkoutScreen() {
             </Text>
           </View>
           <View style={[styles.badge, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>
-              {currentEx.reps} reps
-            </Text>
+            <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>{currentEx.reps} reps</Text>
           </View>
           <View style={[styles.badge, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>
-              {currentEx.restSeconds}s rest
-            </Text>
+            <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>{currentEx.restSeconds}s rest</Text>
           </View>
         </View>
         {currentEx.notes ? (
-          <Text style={[styles.notes, { color: colors.mutedForeground }]} numberOfLines={2}>
-            {currentEx.notes}
-          </Text>
+          <Text style={[styles.notes, { color: colors.mutedForeground }]} numberOfLines={2}>{currentEx.notes}</Text>
         ) : null}
       </View>
 
@@ -309,10 +338,7 @@ export default function WorkoutScreen() {
           </View>
         </View>
 
-        <Pressable
-          onPress={confirmSet}
-          style={[styles.confirmBtn, { backgroundColor: colors.accent }]}
-        >
+        <Pressable onPress={confirmSet} style={[styles.confirmBtn, { backgroundColor: colors.accent }]}>
           <Text style={[styles.confirmBtnText, { color: colors.accentForeground }]}>
             Confirm Set {Math.min(currentSetNum, currentEx.sets)}
           </Text>
@@ -335,10 +361,7 @@ export default function WorkoutScreen() {
       {/* Rest timer overlay */}
       {status === "resting" && (
         <View style={[StyleSheet.absoluteFill, styles.restOverlay]}>
-          <LinearGradient
-            colors={["rgba(8,8,17,0.96)", "rgba(8,8,17,0.99)"]}
-            style={StyleSheet.absoluteFill}
-          />
+          <LinearGradient colors={["rgba(8,8,17,0.96)", "rgba(8,8,17,0.99)"]} style={StyleSheet.absoluteFill} />
           <View style={styles.restContent}>
             <Text style={[styles.restLabel, { color: colors.mutedForeground }]}>REST</Text>
             <View style={styles.ringWrapper}>
@@ -358,7 +381,7 @@ export default function WorkoutScreen() {
               <View style={styles.nextUpRow}>
                 <Text style={[styles.nextUpLabel, { color: colors.mutedForeground }]}>NEXT UP</Text>
                 <Text style={[styles.nextUpName, { color: colors.foreground }]}>
-                  {exercises[exIndex + 1]?.exercise.name ?? "—"}
+                  {exercises[exIndex + 1]?.exercise?.name ?? "—"}
                 </Text>
               </View>
             )}
@@ -388,22 +411,9 @@ export default function WorkoutScreen() {
   );
 }
 
-function StatBox({
-  label,
-  value,
-  accent,
-  muted,
-  foreground,
-  card,
-  border,
-}: {
-  label: string;
-  value: string;
-  accent: string;
-  muted: string;
-  foreground: string;
-  card: string;
-  border: string;
+function StatBox({ label, value, accent, muted, foreground, card, border }: {
+  label: string; value: string; accent: string; muted: string;
+  foreground: string; card: string; border: string;
 }) {
   return (
     <View style={[statStyles.box, { backgroundColor: card, borderColor: border }]}>
@@ -427,71 +437,35 @@ const statStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
+  topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 12 },
   closeBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   progressCenter: { alignItems: "center", justifyContent: "center" },
   progressLabel: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   progressEx: { fontSize: 11, fontWeight: "700" },
   sessionTime: { fontSize: 13, fontWeight: "600", minWidth: 40, textAlign: "right" },
-
   exInfo: { paddingHorizontal: 20, paddingTop: 16, gap: 10 },
   exName: { fontSize: 26, fontWeight: "800", letterSpacing: -0.5, lineHeight: 32 },
   setsRepsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
   badgeText: { fontSize: 12, fontWeight: "600" },
   notes: { fontSize: 13, lineHeight: 19 },
-
   loggerSection: { paddingHorizontal: 20, marginTop: 20, gap: 14 },
   inputsRow: { flexDirection: "row", alignItems: "center", gap: 0 },
-  inputBlock: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    gap: 4,
-  },
+  inputBlock: { flex: 1, borderRadius: 14, borderWidth: 1, alignItems: "center", paddingVertical: 16, paddingHorizontal: 12, gap: 4 },
   inputLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase" },
   logInput: { fontSize: 36, fontWeight: "800", textAlign: "center" },
   inputSeparator: { width: 32, alignItems: "center" },
   separatorText: { fontSize: 22, fontWeight: "300" },
   confirmBtn: { borderRadius: 16, paddingVertical: 18, alignItems: "center" },
   confirmBtnText: { fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
-
-  navRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 32,
-    paddingHorizontal: 20,
-    marginTop: 16,
-  },
+  navRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 32, paddingHorizontal: 20, marginTop: 16 },
   navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  pauseBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
+  pauseBtn: { width: 56, height: 56, borderRadius: 28, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   restOverlay: { alignItems: "center", justifyContent: "center" },
   restContent: { alignItems: "center", gap: 24 },
   restLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 3, textTransform: "uppercase" },
   ringWrapper: { width: 180, height: 180, alignItems: "center", justifyContent: "center" },
-  restCountCenter: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  restCountCenter: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   restCount: { fontSize: 56, fontWeight: "800", lineHeight: 60 },
   restSec: { fontSize: 14, fontWeight: "500" },
   nextUpRow: { alignItems: "center", gap: 4 },
@@ -501,12 +475,10 @@ const styles = StyleSheet.create({
   restBtn: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   skipBtn: { borderRadius: 26, paddingHorizontal: 24, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
   skipBtnText: { fontSize: 15, fontWeight: "600" },
-
   pauseOverlay: { alignItems: "center", justifyContent: "center", gap: 24 },
   pausedText: { fontSize: 24, fontWeight: "800", letterSpacing: 4 },
   resumeBtn: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, paddingHorizontal: 28, paddingVertical: 16 },
   resumeBtnText: { fontSize: 18, fontWeight: "700" },
-
   completionContainer: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, gap: 20 },
   completionIcon: { width: 96, height: 96, borderRadius: 48, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   completionTitle: { fontSize: 32, fontWeight: "800", letterSpacing: -0.5 },

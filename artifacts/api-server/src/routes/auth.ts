@@ -1,5 +1,6 @@
 import * as oidc from "openid-client";
 import { Router, type IRouter, type Request, type Response } from "express";
+import { eq } from "drizzle-orm";
 import {
   GetCurrentAuthUserResponse,
   ExchangeMobileAuthorizationCodeBody,
@@ -7,6 +8,11 @@ import {
   LogoutMobileSessionResponse,
 } from "@workspace/api-zod";
 import { db, usersTable } from "@workspace/db";
+import {
+  studentTrainerAssignmentsTable,
+  conversationsTable,
+  conversationParticipantsTable,
+} from "@workspace/db";
 import {
   clearSession,
   getOidcConfig,
@@ -18,8 +24,14 @@ import {
   ISSUER_URL,
   type SessionData,
 } from "../lib/auth";
+import { StudentLoginBody, TrainerLoginBody } from "@workspace/api-zod";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
+
+const TRAINER_ID = "trainer1";
+const TRAINER_EMAIL = "jordan@trainflow.com";
+const TRAINER_PIN = "1234";
+const TRAINER_NAME = "Jordan Silva";
 
 const router: IRouter = Router();
 
@@ -81,6 +93,8 @@ async function upsertUser(claims: Record<string, unknown>) {
     .returning();
   return user;
 }
+
+// ── OIDC browser auth ────────────────────────────────────────────────────────
 
 router.get("/auth/user", (req: Request, res: Response) => {
   res.json(
@@ -267,6 +281,138 @@ router.post("/mobile-auth/logout", async (req: Request, res: Response) => {
     await deleteSession(sid);
   }
   res.json(LogoutMobileSessionResponse.parse({ success: true }));
+});
+
+// ── Simple mobile app auth (student magic-link / trainer PIN) ────────────────
+
+router.post("/auth/student-login", async (req: Request, res: Response) => {
+  try {
+    const parsed = StudentLoginBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      return;
+    }
+    const { email } = parsed.data;
+
+    let user = await db.query.usersTable.findFirst({
+      where: eq(usersTable.email, email.toLowerCase()),
+    });
+
+    let isNewUser = false;
+    if (!user) {
+      isNewUser = true;
+      const id = `student_${Date.now()}`;
+      const name = email
+        .split("@")[0]
+        .replace(/[._-]/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      await db.insert(usersTable).values({
+        id,
+        name,
+        email: email.toLowerCase(),
+        role: "student",
+      });
+      user = await db.query.usersTable.findFirst({ where: eq(usersTable.id, id) });
+
+      const existing = await db.query.studentTrainerAssignmentsTable.findFirst({
+        where: eq(studentTrainerAssignmentsTable.studentId, id),
+      });
+      if (!existing) {
+        await db
+          .insert(studentTrainerAssignmentsTable)
+          .values({
+            id: `assign_${id}`,
+            studentId: id,
+            trainerId: TRAINER_ID,
+            status: "invited",
+          })
+          .onConflictDoNothing();
+      }
+
+      const convId = `conv_${id}_${TRAINER_ID}`;
+      const existingConv = await db.query.conversationsTable.findFirst({
+        where: eq(conversationsTable.id, convId),
+      });
+      if (!existingConv) {
+        await db
+          .insert(conversationsTable)
+          .values({ id: convId, isGroup: false })
+          .onConflictDoNothing();
+        await db
+          .insert(conversationParticipantsTable)
+          .values([
+            { id: `cp_${convId}_student`, conversationId: convId, userId: id },
+            { id: `cp_${convId}_trainer`, conversationId: convId, userId: TRAINER_ID },
+          ])
+          .onConflictDoNothing();
+      }
+    } else if (user.role !== "student") {
+      res.status(403).json({ error: "Not a student account" });
+      return;
+    }
+
+    res.json({
+      user: {
+        id: user!.id,
+        name: user!.name,
+        email: user!.email,
+        role: user!.role,
+        onboardingDone: user!.onboardingDone ?? "false",
+      },
+      isNewUser,
+    });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+router.post("/auth/trainer-login", async (req: Request, res: Response) => {
+  try {
+    const parsed = TrainerLoginBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      return;
+    }
+    const { email, pin } = parsed.data;
+
+    if (email.toLowerCase() !== TRAINER_EMAIL || pin !== TRAINER_PIN) {
+      res.status(401).json({ error: "Invalid credentials" });
+      return;
+    }
+
+    let trainer = await db.query.usersTable.findFirst({
+      where: eq(usersTable.id, TRAINER_ID),
+    });
+
+    if (!trainer) {
+      await db
+        .insert(usersTable)
+        .values({
+          id: TRAINER_ID,
+          name: TRAINER_NAME,
+          email: TRAINER_EMAIL,
+          role: "trainer",
+          pinHash: TRAINER_PIN,
+        })
+        .onConflictDoNothing();
+      trainer = await db.query.usersTable.findFirst({ where: eq(usersTable.id, TRAINER_ID) });
+    }
+
+    res.json({
+      user: {
+        id: trainer!.id,
+        name: trainer!.name,
+        email: trainer!.email,
+        role: trainer!.role,
+        onboardingDone: "true",
+      },
+      isNewUser: false,
+    });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Login failed" });
+  }
 });
 
 export default router;

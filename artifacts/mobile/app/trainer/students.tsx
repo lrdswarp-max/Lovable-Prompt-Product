@@ -1,6 +1,8 @@
 import { Feather } from "@expo/vector-icons";
+import { useListStudents, useInviteStudent } from "@workspace/api-client-react";
 import * as Haptics from "expo-haptics";
-import React, { useState, useMemo } from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useState, useMemo } from "react";
 import {
   Alert,
   FlatList,
@@ -13,25 +15,44 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useData } from "@/context/DataContext";
-import type { StudentRecord } from "@/data/types";
+import { api, type ApiPlan } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
+
+type ApiStudent = {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  activePlanName?: string;
+  lastSession?: string;
+  goal?: string;
+  weightKg?: string;
+};
 
 export default function StudentsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { students, plans, addStudent, assignPlan } = useData();
 
   const [search, setSearch] = useState("");
+  const [plans, setPlans] = useState<ApiPlan[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showAssignModal, setShowAssignModal] = useState<StudentRecord | null>(null);
+  const [showAssignModal, setShowAssignModal] = useState<ApiStudent | null>(null);
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
+
+  const { data: students = [], isLoading: loading, refetch } = useListStudents();
+  const inviteStudent = useInviteStudent();
+
+  useFocusEffect(
+    useCallback(() => {
+      api.plans.list().then(setPlans).catch(() => {});
+    }, [])
+  );
 
   const filtered = useMemo(
     () =>
       students.filter(
-        (s) =>
+        (s: ApiStudent) =>
           s.name.toLowerCase().includes(search.toLowerCase()) ||
           s.email.toLowerCase().includes(search.toLowerCase())
       ),
@@ -41,32 +62,35 @@ export default function StudentsScreen() {
   const handleAddStudent = async () => {
     if (!newName.trim() || !newEmail.trim()) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const newStudent: StudentRecord = {
-      id: `student${Date.now()}`,
-      name: newName.trim(),
-      email: newEmail.trim(),
-      status: "invited",
-      measurements: {},
-    };
-    await addStudent(newStudent);
-    setNewName("");
-    setNewEmail("");
-    setShowAddModal(false);
-    Alert.alert("Invite Sent", `Magic link sent to ${newStudent.email}`);
+    try {
+      await inviteStudent.mutateAsync({ data: { name: newName.trim(), email: newEmail.trim() } });
+      setNewName("");
+      setNewEmail("");
+      setShowAddModal(false);
+      refetch();
+      Alert.alert("Invite Sent", `Magic link sent to ${newEmail.trim()}`);
+    } catch {
+      Alert.alert("Error", "Failed to invite student. Please try again.");
+    }
   };
 
-  const handleAssignPlan = async (plan: { id: string; name: string }) => {
+  const handleAssignPlan = async (plan: ApiPlan) => {
     if (!showAssignModal) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await assignPlan(showAssignModal.id, plan.id, plan.name);
-    setShowAssignModal(null);
-    Alert.alert("Plan Assigned", `"${plan.name}" assigned to ${showAssignModal.name}.`);
+    try {
+      await api.plans.update(plan.id, { studentId: showAssignModal.id });
+      setShowAssignModal(null);
+      refetch();
+      Alert.alert("Plan Assigned", `"${plan.name}" assigned to ${showAssignModal.name}.`);
+    } catch {
+      Alert.alert("Error", "Failed to assign plan.");
+    }
   };
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   const bottomPad = Platform.OS === "web" ? 84 + 34 : 84 + insets.bottom;
 
-  const renderStudent = ({ item }: { item: StudentRecord }) => (
+  const renderStudent = ({ item }: { item: ApiStudent }) => (
     <View style={[styles.studentCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={[styles.avatar, { backgroundColor: item.status === "active" ? colors.primary + "30" : colors.muted }]}>
         <Text style={[styles.avatarText, { color: item.status === "active" ? colors.primary : colors.mutedForeground }]}>
@@ -107,7 +131,6 @@ export default function StudentsScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Students</Text>
         <Pressable
@@ -119,7 +142,6 @@ export default function StudentsScreen() {
         </Pressable>
       </View>
 
-      {/* Search */}
       <View style={[styles.searchWrapper, { backgroundColor: colors.card, borderColor: colors.border, marginHorizontal: 16, marginTop: 12 }]}>
         <Feather name="search" size={16} color={colors.mutedForeground} />
         <TextInput
@@ -137,16 +159,17 @@ export default function StudentsScreen() {
         renderItem={renderStudent}
         contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={!!filtered.length}
+        scrollEnabled={filtered.length > 0}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Feather name="users" size={40} color={colors.muted} />
-            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No students found</Text>
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+              {loading ? "Loading..." : "No students found"}
+            </Text>
           </View>
         }
       />
 
-      {/* Add student modal */}
       {showAddModal && (
         <View style={[StyleSheet.absoluteFill, styles.modalOverlay, { backgroundColor: "rgba(8,8,17,0.92)" }]}>
           <View style={[styles.modal, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -186,7 +209,6 @@ export default function StudentsScreen() {
         </View>
       )}
 
-      {/* Assign plan modal */}
       {showAssignModal && (
         <View style={[StyleSheet.absoluteFill, styles.modalOverlay, { backgroundColor: "rgba(8,8,17,0.92)" }]}>
           <View style={[styles.modal, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -204,13 +226,13 @@ export default function StudentsScreen() {
 
             {plans.length === 0 ? (
               <Text style={[styles.noPlansText, { color: colors.mutedForeground }]}>
-                No plans yet. Create a plan first from the Plans tab.
+                No plans available. Create a plan first.
               </Text>
             ) : (
               plans.map((plan) => (
                 <Pressable
                   key={plan.id}
-                  onPress={() => handleAssignPlan({ id: plan.id, name: plan.name })}
+                  onPress={() => handleAssignPlan(plan)}
                   style={[styles.planOption, {
                     backgroundColor: showAssignModal.activePlanName === plan.name ? colors.primary + "20" : colors.input,
                     borderColor: showAssignModal.activePlanName === plan.name ? colors.primary : colors.border,
@@ -219,7 +241,7 @@ export default function StudentsScreen() {
                   <View style={styles.planOptionInfo}>
                     <Text style={[styles.planOptionName, { color: colors.foreground }]}>{plan.name}</Text>
                     <Text style={[styles.planOptionMeta, { color: colors.mutedForeground }]}>
-                      {plan.days.length} days · {plan.isPublished ? "Published" : "Draft"}
+                      {plan.isPublished ? "Published" : "Draft"}
                     </Text>
                   </View>
                   {showAssignModal.activePlanName === plan.name && (

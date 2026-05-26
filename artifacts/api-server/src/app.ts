@@ -6,6 +6,15 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
 
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      actorId: string | null;
+    }
+  }
+}
+
 const app: Express = express();
 
 app.use(
@@ -32,6 +41,17 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
+
+app.use((req, _res, next) => {
+  const auth = req.headers["authorization"];
+  if (auth && auth.startsWith("Bearer ")) {
+    const token = auth.slice(7).trim();
+    req.actorId = token.length > 0 ? token : null;
+  } else {
+    req.actorId = null;
+  }
+  next();
+});
 
 app.use("/api", router);
 

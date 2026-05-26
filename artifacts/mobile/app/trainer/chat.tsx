@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
   Platform,
@@ -14,39 +15,76 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
-import { useData } from "@/context/DataContext";
-import type { Conversation, Message } from "@/data/types";
+import { api, type ApiConversation, type ApiMessage } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
 
 export default function TrainerChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { conversations, sendMessage } = useData();
 
   const [selected, setSelected] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ApiConversation[]>([]);
+  const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [input, setInput] = useState("");
   const flatRef = useRef<FlatList>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   const bottomPad = Platform.OS === "web" ? 84 + 34 : insets.bottom;
 
-  const activeConv = conversations.find((c) => c.id === selected);
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) return;
+      let active = true;
+
+      api.conversations.list(user.id).then((convs) => {
+        if (active) setConversations(convs);
+      }).catch(() => {});
+
+      return () => { active = false; };
+    }, [user])
+  );
+
+  useEffect(() => {
+    if (!selected) return;
+    let active = true;
+
+    const loadMessages = () => {
+      api.conversations.messages(selected).then((msgs) => {
+        if (active) setMessages(msgs);
+      }).catch(() => {});
+    };
+
+    loadMessages();
+    pollRef.current = setInterval(loadMessages, 5000);
+    return () => {
+      active = false;
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [selected]);
 
   const handleSend = async () => {
-    if (!input.trim() || !selected) return;
+    if (!input.trim() || !selected || !user) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const msg: Message = {
-      id: `m${Date.now()}`,
-      senderId: user?.id ?? "trainer1",
-      senderName: user?.name ?? "Coach",
-      text: input.trim(),
-      timestamp: Date.now(),
-    };
-    await sendMessage(selected, msg);
+    const text = input.trim();
     setInput("");
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+    try {
+      const msg = await api.conversations.sendMessage(selected, {
+        senderId: user.id,
+        senderName: user.name,
+        text,
+      });
+      setMessages((prev) => [...prev, msg]);
+      // Refresh conversation list to update last message
+      api.conversations.list(user.id).then(setConversations).catch(() => {});
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch {
+      // ignore
+    }
   };
+
+  const activeConv = conversations.find((c) => c.id === selected);
 
   if (selected && activeConv) {
     const convTitle = activeConv.isGroup
@@ -54,10 +92,7 @@ export default function TrainerChatScreen() {
       : activeConv.participantNames.find((n) => n !== user?.name) ?? "Student";
 
     return (
-      <KeyboardAvoidingView
-        behavior="padding"
-        style={[styles.root, { backgroundColor: colors.background }]}
-      >
+      <KeyboardAvoidingView behavior="padding" style={[styles.root, { backgroundColor: colors.background }]}>
         <View style={[styles.chatHeader, { paddingTop: topPad + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
           <Pressable onPress={() => setSelected(null)} style={styles.backBtn} hitSlop={8}>
             <Feather name="arrow-left" size={22} color={colors.foreground} />
@@ -66,9 +101,7 @@ export default function TrainerChatScreen() {
             {activeConv.isGroup ? (
               <Feather name="users" size={18} color={colors.primary} />
             ) : (
-              <Text style={[styles.convAvatarText, { color: colors.primary }]}>
-                {convTitle.charAt(0)}
-              </Text>
+              <Text style={[styles.convAvatarText, { color: colors.primary }]}>{convTitle.charAt(0)}</Text>
             )}
           </View>
           <View style={styles.convTitleBlock}>
@@ -83,24 +116,20 @@ export default function TrainerChatScreen() {
 
         <FlatList
           ref={flatRef}
-          data={activeConv.messages}
+          data={messages}
           keyExtractor={(m) => m.id}
           renderItem={({ item }) => {
             const isMe = item.senderId === user?.id;
             return (
               <View style={[msgStyles.row, isMe ? msgStyles.rowRight : msgStyles.rowLeft]}>
                 {!isMe && activeConv.isGroup && (
-                  <View style={[msgStyles.avatar, { backgroundColor: colors.secondary }]}>
-                    <Text style={[msgStyles.avatarText, { color: colors.mutedForeground }]}>
-                      {item.senderName.charAt(0)}
-                    </Text>
+                  <View style={[msgStyles.avatar, { backgroundColor: colors.secondary ?? colors.muted }]}>
+                    <Text style={[msgStyles.avatarText, { color: colors.mutedForeground }]}>{item.senderName.charAt(0)}</Text>
                   </View>
                 )}
                 <View style={msgStyles.bubbleWrapper}>
                   {!isMe && activeConv.isGroup && (
-                    <Text style={[msgStyles.senderName, { color: colors.mutedForeground }]}>
-                      {item.senderName}
-                    </Text>
+                    <Text style={[msgStyles.senderName, { color: colors.mutedForeground }]}>{item.senderName}</Text>
                   )}
                   <View style={[
                     msgStyles.bubble,
@@ -108,9 +137,7 @@ export default function TrainerChatScreen() {
                       ? { backgroundColor: colors.primary }
                       : { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
                   ]}>
-                    <Text style={[msgStyles.text, { color: isMe ? "#fff" : colors.foreground }]}>
-                      {item.text}
-                    </Text>
+                    <Text style={[msgStyles.text, { color: isMe ? "#fff" : colors.foreground }]}>{item.text}</Text>
                     <Text style={[msgStyles.time, { color: isMe ? "rgba(255,255,255,0.6)" : colors.mutedForeground }]}>
                       {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </Text>
@@ -123,7 +150,7 @@ export default function TrainerChatScreen() {
           onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: false })}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          scrollEnabled={!!activeConv.messages.length}
+          scrollEnabled={messages.length > 0}
         />
 
         <View style={[styles.inputRow, { borderTopColor: colors.border, paddingBottom: Math.max(bottomPad, 8) + 8 }]}>
@@ -158,13 +185,18 @@ export default function TrainerChatScreen() {
         keyExtractor={(c) => c.id}
         contentContainerStyle={[styles.convList, { paddingBottom: bottomPad + 16 }]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={!!conversations.length}
-        renderItem={({ item }: { item: Conversation }) => {
-          const lastMsg = item.messages[item.messages.length - 1];
+        scrollEnabled={conversations.length > 0}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Feather name="message-circle" size={40} color={colors.muted} />
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No conversations yet</Text>
+          </View>
+        }
+        renderItem={({ item }: { item: ApiConversation }) => {
+          const lastMsg = item.lastMessage;
           const convTitle = item.isGroup
             ? (item.title ?? "Group")
             : item.participantNames.find((n) => n !== user?.name) ?? "Student";
-          const unread = item.messages.filter((m) => m.senderId !== user?.id).length;
           return (
             <Pressable
               onPress={() => setSelected(item.id)}
@@ -174,9 +206,7 @@ export default function TrainerChatScreen() {
                 {item.isGroup ? (
                   <Feather name="users" size={20} color={colors.primary} />
                 ) : (
-                  <Text style={[styles.convAvatarLgText, { color: colors.primary }]}>
-                    {convTitle.charAt(0)}
-                  </Text>
+                  <Text style={[styles.convAvatarLgText, { color: colors.primary }]}>{convTitle.charAt(0)}</Text>
                 )}
               </View>
               <View style={styles.convInfo}>
@@ -188,18 +218,11 @@ export default function TrainerChatScreen() {
                     </Text>
                   )}
                 </View>
-                <View style={styles.convBottomRow}>
-                  {lastMsg && (
-                    <Text style={[styles.convPreview, { color: colors.mutedForeground }]} numberOfLines={1}>
-                      {lastMsg.senderName === user?.name ? "You: " : ""}{lastMsg.text}
-                    </Text>
-                  )}
-                  {unread > 0 && (
-                    <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
-                      <Text style={styles.unreadCount}>{unread}</Text>
-                    </View>
-                  )}
-                </View>
+                {lastMsg && (
+                  <Text style={[styles.convPreview, { color: colors.mutedForeground }]} numberOfLines={1}>
+                    {lastMsg.senderName === user?.name ? "You: " : ""}{lastMsg.text}
+                  </Text>
+                )}
               </View>
             </Pressable>
           );
@@ -246,8 +269,7 @@ const styles = StyleSheet.create({
   convTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   convTitle: { fontSize: 16, fontWeight: "700" },
   convTime: { fontSize: 12 },
-  convBottomRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  convPreview: { flex: 1, fontSize: 13, lineHeight: 18 },
-  unreadBadge: { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
-  unreadCount: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  convPreview: { fontSize: 13, lineHeight: 18 },
+  empty: { alignItems: "center", justifyContent: "center", paddingVertical: 60, gap: 12 },
+  emptyText: { fontSize: 16 },
 });

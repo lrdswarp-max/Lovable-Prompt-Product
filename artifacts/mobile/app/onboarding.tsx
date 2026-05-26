@@ -15,6 +15,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAuth } from "@/context/AuthContext";
+import { api } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
 
 const STEPS = [
@@ -26,8 +28,10 @@ const STEPS = [
 export default function OnboardingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [values, setValues] = useState({ name: "", goal: "", weight: "" });
+  const [saving, setSaving] = useState(false);
 
   const current = STEPS[step];
   const value = values[current.key as keyof typeof values];
@@ -37,7 +41,22 @@ export default function OnboardingScreen() {
     if (step < STEPS.length - 1) {
       setStep(step + 1);
     } else {
-      router.replace("/(tabs)");
+      setSaving(true);
+      try {
+        if (user) {
+          await api.me.onboarding({
+            userId: user.id,
+            name: values.name || undefined,
+            goal: values.goal || undefined,
+            weightKg: values.weight || undefined,
+          });
+        }
+      } catch {
+        // Ignore API errors — still proceed to dashboard
+      } finally {
+        setSaving(false);
+        router.replace("/(tabs)");
+      }
     }
   };
 
@@ -48,26 +67,16 @@ export default function OnboardingScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={[styles.root, { backgroundColor: colors.background }]}
     >
-      <LinearGradient
-        colors={["#0D0A28", colors.background]}
-        style={StyleSheet.absoluteFill}
-      />
+      <LinearGradient colors={["#0D0A28", colors.background]} style={StyleSheet.absoluteFill} />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingTop: topPad + 40, paddingBottom: insets.bottom + 40 }]}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Progress dots */}
         <View style={styles.dotsRow}>
           {STEPS.map((_, i) => (
             <View
               key={i}
-              style={[
-                styles.dot,
-                {
-                  backgroundColor: i <= step ? colors.accent : colors.muted,
-                  width: i === step ? 24 : 8,
-                },
-              ]}
+              style={[styles.dot, { backgroundColor: i <= step ? colors.accent : colors.muted, width: i === step ? 24 : 8 }]}
             />
           ))}
         </View>
@@ -75,19 +84,10 @@ export default function OnboardingScreen() {
         <Text style={[styles.stepLabel, { color: colors.mutedForeground }]}>
           Step {step + 1} of {STEPS.length}
         </Text>
-        <Text style={[styles.question, { color: colors.foreground }]}>
-          {current.label}
-        </Text>
-        <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-          {current.hint}
-        </Text>
+        <Text style={[styles.question, { color: colors.foreground }]}>{current.label}</Text>
+        <Text style={[styles.hint, { color: colors.mutedForeground }]}>{current.hint}</Text>
 
-        <View
-          style={[
-            styles.inputWrapper,
-            { backgroundColor: colors.input, borderColor: colors.border },
-          ]}
-        >
+        <View style={[styles.inputWrapper, { backgroundColor: colors.input, borderColor: colors.border }]}>
           <TextInput
             style={[styles.input, { color: colors.foreground }]}
             placeholder={current.placeholder}
@@ -103,10 +103,11 @@ export default function OnboardingScreen() {
 
         <Pressable
           onPress={handleNext}
-          style={[styles.nextBtn, { backgroundColor: colors.accent }]}
+          disabled={saving}
+          style={[styles.nextBtn, { backgroundColor: colors.accent, opacity: saving ? 0.7 : 1 }]}
         >
           <Text style={[styles.nextBtnText, { color: colors.accentForeground }]}>
-            {step < STEPS.length - 1 ? "Continue" : "Let's Go"}
+            {step < STEPS.length - 1 ? "Continue" : saving ? "Saving..." : "Let's Go"}
           </Text>
           <Feather name={step < STEPS.length - 1 ? "arrow-right" : "check"} size={18} color={colors.accentForeground} />
         </Pressable>

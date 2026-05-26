@@ -3,7 +3,7 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: TrainFlow API specification
 servers:
   - url: /api
     description: Base API path
@@ -11,14 +11,25 @@ tags:
   - name: health
     description: Health operations
   - name: Auth
-    description: Browser and mobile authentication endpoints.
+    description: Browser and mobile OIDC authentication endpoints.
+  - name: auth
+    description: Mobile app authentication (student / trainer login)
+  - name: users
+    description: User management
+  - name: exercises
+    description: Exercise library
+  - name: plans
+    description: Workout plans
+  - name: sessions
+    description: Workout sessions
+  - name: conversations
+    description: Messaging
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -26,6 +37,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ── OIDC browser / mobile token-exchange ───────────────────────────────────
+
   /auth/user:
     get:
       tags: [Auth]
@@ -142,6 +156,378 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LogoutSuccess'
+
+  # ── Simple mobile app auth ─────────────────────────────────────────────────
+
+  /auth/student-login:
+    post:
+      operationId: studentLogin
+      tags: [auth]
+      summary: Student magic link login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudentLoginRequest"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /auth/trainer-login:
+    post:
+      operationId: trainerLogin
+      tags: [auth]
+      summary: Trainer PIN login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainerLoginRequest"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  # ── Domain routes ──────────────────────────────────────────────────────────
+
+  /exercises:
+    get:
+      operationId: listExercises
+      tags: [exercises]
+      summary: List exercises
+      parameters:
+        - name: muscleGroup
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of exercises
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExerciseDto"
+    post:
+      operationId: createExercise
+      tags: [exercises]
+      summary: Create custom exercise
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExerciseRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExerciseDto"
+
+  /students:
+    get:
+      operationId: listStudents
+      tags: [users]
+      summary: List trainer's students
+      responses:
+        "200":
+          description: List of students
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StudentDto"
+    post:
+      operationId: inviteStudent
+      tags: [users]
+      summary: Invite a new student
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteStudentRequest"
+      responses:
+        "201":
+          description: Invited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentDto"
+
+  /plans:
+    get:
+      operationId: listPlans
+      tags: [plans]
+      summary: List workout plans
+      parameters:
+        - name: studentId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkoutPlanDto"
+    post:
+      operationId: createPlan
+      tags: [plans]
+      summary: Create workout plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlanRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutPlanDto"
+
+  /plans/{planId}:
+    get:
+      operationId: getPlan
+      tags: [plans]
+      summary: Get full plan with days and exercises
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutPlanFullDto"
+    put:
+      operationId: updatePlan
+      tags: [plans]
+      summary: Update plan metadata
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePlanRequest"
+      responses:
+        "200":
+          description: Updated plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutPlanDto"
+
+  /plans/{planId}/days:
+    post:
+      operationId: addPlanDay
+      tags: [plans]
+      summary: Add a day to a plan
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDayRequest"
+      responses:
+        "201":
+          description: Created day
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutDayDto"
+
+  /plans/{planId}/days/{dayId}/exercises:
+    post:
+      operationId: addDayExercise
+      tags: [plans]
+      summary: Add exercise to a plan day
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dayId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlanExerciseRequest"
+      responses:
+        "201":
+          description: Created plan exercise
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanExerciseDto"
+
+  /sessions:
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      summary: List sessions for the current student
+      parameters:
+        - name: studentId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkoutSessionDto"
+    post:
+      operationId: createSession
+      tags: [sessions]
+      summary: Start or save a workout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutSessionDto"
+
+  /conversations:
+    get:
+      operationId: listConversations
+      tags: [conversations]
+      summary: List conversations for the current user
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConversationDto"
+
+  /conversations/{conversationId}/messages:
+    get:
+      operationId: listMessages
+      tags: [conversations]
+      summary: Get messages in a conversation
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MessageDto"
+    post:
+      operationId: sendMessage
+      tags: [conversations]
+      summary: Send a message
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: Sent message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageDto"
+
+  /me/onboarding:
+    post:
+      operationId: completeOnboarding
+      tags: [users]
+      summary: Save student onboarding data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingRequest"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDto"
+
 components:
   parameters:
     AuthorizationSessionHeader:
@@ -166,6 +552,9 @@ components:
           type: string
       required:
         - status
+
+    # ── OIDC auth schemas ────────────────────────────────────────────────────
+
     AuthUser:
       type: object
       required: [id, email, firstName, lastName, profileImageUrl]
@@ -228,3 +617,400 @@ components:
       properties:
         error:
           type: string
+
+    # ── Simple app auth schemas ──────────────────────────────────────────────
+
+    UserDto:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [student, trainer]
+        onboardingDone:
+          type: string
+      required: [id, name, email, role]
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/UserDto"
+        isNewUser:
+          type: boolean
+      required: [user, isNewUser]
+
+    StudentLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+      required: [email]
+
+    TrainerLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        pin:
+          type: string
+      required: [email, pin]
+
+    # ── Domain schemas ───────────────────────────────────────────────────────
+
+    OnboardingRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        name:
+          type: string
+        goal:
+          type: string
+        weightKg:
+          type: string
+      required: [userId]
+
+    ExerciseDto:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        muscleGroup:
+          type: string
+        equipment:
+          type: string
+        description:
+          type: string
+        isGlobal:
+          type: boolean
+        isCustom:
+          type: boolean
+      required: [id, name, muscleGroup, equipment]
+
+    CreateExerciseRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        muscleGroup:
+          type: string
+        equipment:
+          type: string
+        description:
+          type: string
+      required: [name, muscleGroup, equipment]
+
+    StudentDto:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+        lastSession:
+          type: string
+        activePlanName:
+          type: string
+        goal:
+          type: string
+        weightKg:
+          type: string
+        heightCm:
+          type: string
+      required: [id, name, email, status]
+
+    InviteStudentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+      required: [name, email]
+
+    WorkoutPlanDto:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        trainerId:
+          type: string
+        studentId:
+          type: string
+        isPublished:
+          type: boolean
+      required: [id, name, trainerId]
+
+    WorkoutDayDto:
+      type: object
+      properties:
+        id:
+          type: string
+        planId:
+          type: string
+        dayName:
+          type: string
+        focus:
+          type: string
+        orderIndex:
+          type: integer
+      required: [id, planId, dayName, focus]
+
+    PlanExerciseDto:
+      type: object
+      properties:
+        id:
+          type: string
+        dayId:
+          type: string
+        exerciseId:
+          type: string
+        sets:
+          type: integer
+        reps:
+          type: string
+        restSeconds:
+          type: integer
+        notes:
+          type: string
+        orderIndex:
+          type: integer
+      required: [id, dayId, exerciseId, sets, reps, restSeconds]
+
+    WorkoutPlanFullDto:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        trainerId:
+          type: string
+        studentId:
+          type: string
+        isPublished:
+          type: boolean
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkoutDayFullDto"
+      required: [id, name, trainerId, days]
+
+    WorkoutDayFullDto:
+      type: object
+      properties:
+        id:
+          type: string
+        planId:
+          type: string
+        dayName:
+          type: string
+        focus:
+          type: string
+        orderIndex:
+          type: integer
+        exercises:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanExerciseFullDto"
+      required: [id, planId, dayName, focus, exercises]
+
+    PlanExerciseFullDto:
+      type: object
+      properties:
+        id:
+          type: string
+        dayId:
+          type: string
+        exerciseId:
+          type: string
+        sets:
+          type: integer
+        reps:
+          type: string
+        restSeconds:
+          type: integer
+        notes:
+          type: string
+        orderIndex:
+          type: integer
+        exercise:
+          $ref: "#/components/schemas/ExerciseDto"
+      required: [id, dayId, exerciseId, sets, reps, restSeconds, exercise]
+
+    CreatePlanRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        studentId:
+          type: string
+        isPublished:
+          type: boolean
+      required: [name]
+
+    UpdatePlanRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        studentId:
+          type: string
+        isPublished:
+          type: boolean
+
+    CreateDayRequest:
+      type: object
+      properties:
+        dayName:
+          type: string
+        focus:
+          type: string
+        orderIndex:
+          type: integer
+      required: [dayName, focus]
+
+    CreatePlanExerciseRequest:
+      type: object
+      properties:
+        exerciseId:
+          type: string
+        sets:
+          type: integer
+        reps:
+          type: string
+        restSeconds:
+          type: integer
+        notes:
+          type: string
+        orderIndex:
+          type: integer
+      required: [exerciseId, sets, reps, restSeconds]
+
+    WorkoutSessionDto:
+      type: object
+      properties:
+        id:
+          type: string
+        studentId:
+          type: string
+        planId:
+          type: string
+        dayId:
+          type: string
+        startTime:
+          type: integer
+        endTime:
+          type: integer
+        exerciseFocus:
+          type: string
+        loggedSets:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoggedSetDto"
+      required: [id, studentId, startTime, loggedSets]
+
+    LoggedSetDto:
+      type: object
+      properties:
+        exerciseId:
+          type: string
+        setIndex:
+          type: integer
+        reps:
+          type: integer
+        weightKg:
+          type: number
+      required: [exerciseId, setIndex, reps, weightKg]
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        studentId:
+          type: string
+        planId:
+          type: string
+        dayId:
+          type: string
+        startTime:
+          type: integer
+        endTime:
+          type: integer
+        exerciseFocus:
+          type: string
+        loggedSets:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoggedSetDto"
+      required: [studentId, startTime, loggedSets]
+
+    ConversationDto:
+      type: object
+      properties:
+        id:
+          type: string
+        isGroup:
+          type: boolean
+        participantIds:
+          type: array
+          items:
+            type: string
+        participantNames:
+          type: array
+          items:
+            type: string
+        lastMessage:
+          type: object
+          properties:
+            id:
+              type: string
+            senderId:
+              type: string
+            text:
+              type: string
+            timestamp:
+              type: integer
+          required: [id, senderId, text, timestamp]
+      required: [id, isGroup, participantIds, participantNames]
+
+    MessageDto:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        senderId:
+          type: string
+        senderName:
+          type: string
+        text:
+          type: string
+        timestamp:
+          type: integer
+      required: [id, conversationId, senderId, senderName, text, timestamp]
+
+    SendMessageRequest:
+      type: object
+      properties:
+        senderId:
+          type: string
+        senderName:
+          type: string
+        text:
+          type: string
+      required: [senderId, senderName, text]

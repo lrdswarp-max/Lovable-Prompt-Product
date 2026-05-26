@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -13,22 +13,54 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
-import { useData } from "@/context/DataContext";
+import { api, type ApiStudent, type ApiSession, type ApiConversation, type ApiPlan } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
 
 export default function TrainerDashboard() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
-  const { students, conversations, sessions, plans } = useData();
+
+  const [students, setStudents] = useState<ApiStudent[]>([]);
+  const [sessions, setSessions] = useState<ApiSession[]>([]);
+  const [conversations, setConversations] = useState<ApiConversation[]>([]);
+  const [plans, setPlans] = useState<ApiPlan[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       if (!user) {
         router.replace("/login");
+        return;
       } else if (user.role === "student") {
         router.replace("/(tabs)");
+        return;
       }
+
+      let active = true;
+
+      async function load() {
+        try {
+          const [stds, convs, pls] = await Promise.all([
+            api.students.list(),
+            api.conversations.list(user!.id),
+            api.plans.list(),
+          ]);
+          if (!active) return;
+          setStudents(stds);
+          setConversations(convs);
+          setPlans(pls);
+
+          // Load sessions for all active students
+          const activeSts = stds.filter((s) => s.status === "active");
+          const allSessions = await Promise.all(activeSts.map((s) => api.sessions.list(s.id).catch(() => [])));
+          if (active) setSessions(allSessions.flat());
+        } catch {
+          // keep empty
+        }
+      }
+
+      load();
+      return () => { active = false; };
     }, [user])
   );
 
@@ -37,10 +69,10 @@ export default function TrainerDashboard() {
   const activeStudents = students.filter((s) => s.status === "active").length;
   const totalStudents = students.length;
   const unreadMessages = conversations.reduce(
-    (n, c) => n + c.messages.filter((m) => m.senderId !== user.id).length,
+    (n, c) => n + (c.lastMessage && c.lastMessage.senderId !== user.id ? 1 : 0),
     0
   );
-  const recentSessions = sessions.slice(0, 3);
+  const recentSessions = [...sessions].sort((a, b) => b.startTime - a.startTime).slice(0, 3);
   const publishedPlans = plans.filter((p) => p.isPublished).length;
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
@@ -52,7 +84,6 @@ export default function TrainerDashboard() {
       contentContainerStyle={[styles.content, { paddingTop: topPad + 16, paddingBottom: bottomPad }]}
       showsVerticalScrollIndicator={false}
     >
-      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={[styles.greeting, { color: colors.mutedForeground }]}>Welcome back,</Text>
@@ -66,29 +97,16 @@ export default function TrainerDashboard() {
         </Pressable>
       </View>
 
-      {/* Stats cards */}
       <View style={styles.statsRow}>
         <StatCard label="Active Students" value={String(activeStudents)} sub={`of ${totalStudents} total`} color={colors.primary} colors={colors} />
         <StatCard label="New Messages" value={String(unreadMessages)} sub="unread" color={colors.accent} colors={colors} />
       </View>
 
-      {/* Quick actions */}
       <View style={styles.section}>
         <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>QUICK ACTIONS</Text>
         <View style={styles.actionsGrid}>
-          <ActionCard
-            icon="users"
-            label="Students"
-            onPress={() => router.push("/trainer/students")}
-            colors={colors}
-          />
-          <ActionCard
-            icon="clipboard"
-            label="Plans"
-            sub={`${publishedPlans} published`}
-            onPress={() => router.push("/trainer/plans")}
-            colors={colors}
-          />
+          <ActionCard icon="users" label="View Students" onPress={() => router.push("/trainer/students")} colors={colors} />
+          <ActionCard icon="activity" label="Exercise Library" onPress={() => router.push("/trainer/exercises")} colors={colors} />
           <ActionCard
             icon="message-circle"
             label="Messages"
@@ -96,10 +114,12 @@ export default function TrainerDashboard() {
             colors={colors}
             badge={unreadMessages > 0 ? String(unreadMessages) : undefined}
           />
+          <ActionCard icon="plus-circle" label="Create Plan" onPress={() => router.push("/trainer/create-plan")} colors={colors} />
           <ActionCard
-            icon="plus-circle"
-            label="New Plan"
-            onPress={() => router.push("/plan-builder")}
+            icon="clipboard"
+            label="My Plans"
+            sub={`${publishedPlans} published`}
+            onPress={() => router.push("/trainer/plans")}
             colors={colors}
           />
         </View>
@@ -111,7 +131,7 @@ export default function TrainerDashboard() {
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>RECENT SESSIONS</Text>
           <View style={[styles.activityCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {recentSessions.map((sess, i) => {
-              const student = students.find((s) => s.id === "student1");
+              const student = students.find((s) => s.id === sess.studentId);
               return (
                 <View key={sess.id}>
                   <View style={styles.activityRow}>
@@ -121,7 +141,7 @@ export default function TrainerDashboard() {
                         {student?.name ?? "Student"}
                       </Text>
                       <Text style={[styles.activityDetail, { color: colors.mutedForeground }]}>
-                        {sess.exerciseFocus} · {sess.loggedSets.length} sets logged
+                        {sess.exerciseFocus} · {sess.loggedSets.length} sets
                       </Text>
                     </View>
                     <Text style={[styles.activityTime, { color: colors.mutedForeground }]}>
@@ -138,7 +158,6 @@ export default function TrainerDashboard() {
         </View>
       )}
 
-      {/* Student roster preview */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>STUDENTS</Text>
@@ -149,10 +168,7 @@ export default function TrainerDashboard() {
         <View style={[styles.rosterCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {students.slice(0, 3).map((s, i) => (
             <View key={s.id}>
-              <Pressable
-                style={styles.rosterRow}
-                onPress={() => router.push("/trainer/students")}
-              >
+              <Pressable style={styles.rosterRow} onPress={() => router.push("/trainer/students")}>
                 <View style={[styles.rosterAvatar, { backgroundColor: s.status === "active" ? colors.primary + "30" : colors.muted }]}>
                   <Text style={[styles.rosterAvatarText, { color: s.status === "active" ? colors.primary : colors.mutedForeground }]}>
                     {s.name.charAt(0)}
@@ -170,11 +186,14 @@ export default function TrainerDashboard() {
                   </Text>
                 </View>
               </Pressable>
-              {i < 2 && students.length > i + 1 && (
-                <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              )}
+              {i < Math.min(students.length, 3) - 1 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
             </View>
           ))}
+          {students.length === 0 && (
+            <View style={styles.emptyRoster}>
+              <Text style={[styles.emptyRosterText, { color: colors.mutedForeground }]}>No students yet. Add your first!</Text>
+            </View>
+          )}
         </View>
       </View>
     </ScrollView>
@@ -199,10 +218,7 @@ function ActionCard({ icon, label, sub, onPress, colors, badge }: {
   colors: ReturnType<typeof useColors>; badge?: string;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={[dashStyles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-    >
+    <Pressable onPress={onPress} style={[dashStyles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={{ position: "relative" }}>
         <Feather name={icon as "users"} size={24} color={colors.primary} />
         {badge && (
@@ -260,4 +276,6 @@ const styles = StyleSheet.create({
   rosterPlan: { fontSize: 12, marginTop: 2 },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusText: { fontSize: 11, fontWeight: "700", textTransform: "capitalize" },
+  emptyRoster: { padding: 20, alignItems: "center" },
+  emptyRosterText: { fontSize: 14 },
 });
